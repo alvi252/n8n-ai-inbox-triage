@@ -4,3 +4,4 @@ results*.json
 results*.txt
 __pycache__/
 *.pyc
+results*.html

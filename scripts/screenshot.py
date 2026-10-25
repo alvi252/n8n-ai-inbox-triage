@@ -7,15 +7,19 @@
   # workflow canvas (zoomed to fit)
   python3 scripts/screenshot.py --workflow-id <id> --out assets/screenshots/n8n-1-workflow.png
 
-  # one execution of the workflow
-  python3 scripts/screenshot.py --workflow-id <id> --execution-id <exec> --out assets/screenshots/n8n-2-execution.png
+  # one execution, with the AI agent's detail view (input, prompt, output) opened
+  python3 scripts/screenshot.py --workflow-id <id> --execution-id <exec> --open-node "AI Triage Agent" \
+      --out assets/screenshots/n8n-2-execution.png
 
   # any other editor page, e.g. a Data Table
   python3 scripts/screenshot.py --path /projects/<projectId>/datatables/<tableId> \
       --out assets/screenshots/n8n-5-data-table.png
 
-  # a text file (e.g. the send_samples.py results table) rendered as an image, no login needed
-  python3 scripts/screenshot.py --text-file results-live.txt --out assets/screenshots/n8n-5-results.png
+  # a local HTML page (e.g. from scripts/results_table.py), full page, no login needed
+  python3 scripts/screenshot.py --html-file results-live.html --out assets/screenshots/n8n-3-results.png
+
+  # a text file rendered as an image, no login needed
+  python3 scripts/screenshot.py --text-file results-live.txt --out results-live.png
 
 Set PLAYWRIGHT_CHROMIUM_EXECUTABLE to use a specific Chromium build.
 """
@@ -43,7 +47,9 @@ def main() -> int:
     target.add_argument("--workflow-id")
     target.add_argument("--path", help="editor path to open, e.g. /home/workflows")
     target.add_argument("--text-file", type=Path, help="render this text file instead of an n8n page")
+    target.add_argument("--html-file", type=Path, help="render this local HTML file (full page)")
     parser.add_argument("--execution-id", help="with --workflow-id: open this execution")
+    parser.add_argument("--open-node", help="with --workflow-id: double-click this node to open its detail view")
     parser.add_argument("--url", default=os.environ.get("N8N_URL", "http://localhost:5678"))
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--width", type=int, default=1600)
@@ -65,6 +71,14 @@ def main() -> int:
             color_scheme="light",
         )
         page = context.new_page()
+
+        if args.html_file:
+            page.goto(args.html_file.resolve().as_uri())
+            page.wait_for_timeout(500)
+            page.screenshot(path=str(args.out), full_page=True)
+            browser.close()
+            print(f"saved {args.out}")
+            return 0
 
         if args.text_file:
             text = args.text_file.read_text(encoding="utf-8")
@@ -95,7 +109,10 @@ def main() -> int:
         if args.workflow_id:
             page.wait_for_selector(".vue-flow__node", timeout=30000)
             page.keyboard.press("Escape")
-            if not args.execution_id:
+            if args.open_node:
+                page.wait_for_timeout(1500)
+                page.locator('[data-test-id="canvas-node"]', has_text=args.open_node).first.dblclick()
+            elif not args.execution_id:
                 # zoom to fit: n8n shortcut "1" on the focused canvas
                 page.mouse.click(args.width - 40, args.height // 2)
                 page.keyboard.press("1")

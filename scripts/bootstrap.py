@@ -10,7 +10,8 @@ What it does, against the n8n URL given by --url (default http://localhost:5678)
   3. obtains a public-API key (N8N_API_KEY, the cached key in --state-file, or a new one);
   4. creates the Data Tables `triage_log` and `triage_errors` if they are missing;
   5. creates or updates the credential "OpenAI account" from OPENAI_API_KEY
-     (a harmless placeholder "not-configured" when the variable is not set);
+     (a harmless placeholder "not-configured" when the variable is not set;
+     an existing credential is left untouched when OPENAI_API_KEY is not set);
   6. imports the workflow (or updates the existing one with the same name),
      wires the credential, sets the workflow as its own error workflow,
      sets mock_mode, and publishes (activates) it.
@@ -248,6 +249,10 @@ def ensure_credential(client: Client) -> str:
     existing = client.request("GET", "/api/v1/credentials?limit=250", api=True)["data"]
     for cred in existing:
         if cred["name"] == CREDENTIAL_NAME and cred["type"] == "openAiApi":
+            if not os.environ.get("OPENAI_API_KEY") and not base_url:
+                # Re-running without a key must not overwrite a real key with the placeholder.
+                log(f'credential "{CREDENTIAL_NAME}": kept as is (OPENAI_API_KEY not set)')
+                return cred["id"]
             client.request(
                 "PATCH",
                 f"/api/v1/credentials/{cred['id']}",
