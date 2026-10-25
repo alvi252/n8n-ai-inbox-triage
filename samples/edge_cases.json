@@ -1,0 +1,31 @@
+[
+  {
+    "id": "e1-missing-message",
+    "note": "Request without a message: the webhook must answer HTTP 400 and spend no AI tokens.",
+    "channel": "contact_form",
+    "from": "someone@example.com",
+    "subject": "Empty form",
+    "message": "",
+    "expected": { "http_status": 400 }
+  },
+  {
+    "id": "e2-malformed-ai-output",
+    "note": "MOCK MODE ONLY. The marker makes the mock return an incomplete, invalid triage object, which must go to human review.",
+    "mock_only": true,
+    "channel": "email",
+    "from": "edge.case@example.com",
+    "subject": "Test: malformed AI output",
+    "message": "Please check my order. [[mock:invalid]]",
+    "expected": { "http_status": 200, "route": "human_review" }
+  },
+  {
+    "id": "e3-workflow-crash",
+    "note": "MOCK MODE ONLY. The marker makes the mock node throw, so the execution fails, the caller gets HTTP 500 and the Error Trigger logs the failure to triage_errors.",
+    "mock_only": true,
+    "channel": "email",
+    "from": "edge.case@example.com",
+    "subject": "Test: unexpected failure",
+    "message": "Simulate a crash. [[mock:crash]]",
+    "expected": { "http_status": 500 }
+  }
+]

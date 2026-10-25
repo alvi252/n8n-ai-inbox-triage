@@ -1,0 +1,1630 @@
+{
+  "name": "AI Inbox Triage (PawPantry demo)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "inbox",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "4dd23950-6b14-5674-a3c4-a73464e9962a",
+      "name": "Inbox webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        400
+      ],
+      "webhookId": "b5f3a0de-7c1e-4b8a-9f4e-2d6c8a1e5b70"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "3fc881f5-2906-5c13-ae32-7e0b0b924ca5",
+              "name": "from",
+              "value": "={{ String($json.body?.from ?? '').trim() }}",
+              "type": "string"
+            },
+            {
+              "id": "cb4f8c3e-206e-5ebe-9ca5-c7f98476d9c8",
+              "name": "subject",
+              "value": "={{ String($json.body?.subject ?? '').trim() }}",
+              "type": "string"
+            },
+            {
+              "id": "2f8ff371-28d6-5d74-b888-7f4ad220adba",
+              "name": "message",
+              "value": "={{ String($json.body?.message ?? '').trim().slice(0, 4000) }}",
+              "type": "string"
+            },
+            {
+              "id": "7437b27a-c913-5530-8f00-155d073ed1f6",
+              "name": "channel",
+              "value": "={{ String($json.body?.channel || 'email').trim().toLowerCase() }}",
+              "type": "string"
+            },
+            {
+              "id": "61b2c76f-8b69-5a21-a94f-2a6f5e427431",
+              "name": "received_at",
+              "value": "={{ $now.toISO() }}",
+              "type": "string"
+            },
+            {
+              "id": "38aa94ba-e44f-50d7-80c1-b7687bea5fef",
+              "name": "mock_mode",
+              "value": false,
+              "type": "boolean"
+            },
+            {
+              "id": "75f081c4-5db9-51ea-a08f-c580e1bf9a92",
+              "name": "min_confidence",
+              "value": 0.6,
+              "type": "number"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "5f4deeac-f834-5cf3-899a-039c54202a0d",
+      "name": "Settings & normalize",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        200,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "ef53c7ef-60a3-51e0-a1c9-eb963fd38b07",
+                    "leftValue": "={{ $json.message }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "empty",
+                      "singleValue": true
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Bad request"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "1f9fb7c9-23ad-523f-9bff-c7f244d68d86",
+                    "leftValue": "={{ $json.mock_mode }}",
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "true",
+                      "singleValue": true
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Mock mode"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "AI agent"
+        }
+      },
+      "id": "5eb61926-1e98-5252-b967-2225a889cd5d",
+      "name": "Check request & mode",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        400,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { ok: false, error: \"Field 'message' is required.\" } }}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "77501917-a5ac-5599-a86f-08667a8d0520",
+      "name": "Respond 400",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        580,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// MOCK AI OUTPUT - test harness, OFF by default.\n// Runs only when \"mock_mode\" = true in \"Settings & normalize\".\n// No API key, no AI call: simple keyword rules produce the SAME shape\n// as the AI Triage Agent ({ output: {...} }), so routing, logging and\n// the webhook response can be tested end to end.\n// Test markers: [[mock:invalid]] -> malformed AI answer (human review),\n//               [[mock:crash]]   -> node failure (error handler).\nconst { subject = '', message = '', from = '' } = $json;\nconst text = `${subject}\\n${message}`;\nconst t = text.toLowerCase();\n\nif (t.includes('[[mock:crash]]')) {\n  throw new Error('Simulated failure in Mock AI output ([[mock:crash]])');\n}\nif (t.includes('[[mock:invalid]]')) {\n  return { json: { output: { category: 'not_a_category', summary: '' } } };\n}\n\nconst has = (re) => re.test(t);\n\n// language: count common words per language\nconst WORDS = {\n  en: ['the', 'and', 'my', 'is', 'you', 'please', 'order', 'with', 'have', 'it'],\n  de: ['und', 'ich', 'die', 'der', 'nicht', 'meine', 'bitte', 'ist', 'noch', 'habe'],\n  fr: ['je', 'le', 'la', 'les', 'et', 'pas', 'mon', 'est', 'vous', 'merci'],\n  es: ['el', 'que', 'y', 'mi', 'pedido', 'por', 'gracias', 'es', 'una', 'hola'],\n  it: ['il', 'che', 'mio', 'non', 'ordine', 'per', 'sono', 'grazie', 'una', 'ciao'],\n  nl: ['het', 'en', 'ik', 'mijn', 'niet', 'bestelling', 'een', 'bedankt', 'is', 'van'],\n};\nconst tokens = t.split(/[^a-zà-ÿß]+/);\nlet language = 'en';\nlet best = 0;\nfor (const [lang, words] of Object.entries(WORDS)) {\n  const score = tokens.filter((w) => words.includes(w)).length;\n  if (score > best) { best = score; language = lang; }\n}\n\n// category: first matching rule wins\nconst RULES = [\n  ['spam', /\\b(seo|backlinks?|crypto|bitcoin|casino|guest post|click here|limited offer|investment opportunity)\\b/],\n  ['wholesale_inquiry', /\\b(wholesale|bulk|distributor|reseller|resell|trade pricing|trade price|b2b|großhandel|grossiste)\\b/],\n  ['complaint', /(unacceptable|disgusting|worst|terrible service|vomit|sick|the vet|lawyer|chargeback|post a review|nobody has replied|third time)/],\n  ['return_refund', /(return|refund|exchange|charged twice|double charge|duplicate payment|retourn|rembours|zurücksend|erstatt)/],\n  ['delivery_problem', /(damaged|crushed|torn|broken|never received|never got|not received|marked as delivered|says it was delivered|still not here|lost parcel|beschädigt|endommag)/],\n  ['order_status', /(where is my order|when will it arrive|when will .* arrive|tracking|no update|haven't had any update|wo bleibt|wann wird|geliefert|versandbestätigung|où en est|ma commande)/],\n  ['product_question', /\\?|(suitable|do you have|ingredients|size|in stock)/],\n];\nlet category = 'product_question';\nlet matched = false;\nfor (const [cat, re] of RULES) {\n  if (re.test(t)) { category = cat; matched = true; break; }\n}\n\n// urgency\nconst days = [...t.matchAll(/\\b(\\d{1,2})\\s+(days|tage|jours)\\b/g)].map((m) => Number(m[1]));\nconst veryLate = days.some((d) => d >= 7);\nlet urgency = 'normal';\nif (['spam', 'wholesale_inquiry', 'product_question'].includes(category)) urgency = 'low';\nif (has(/(vomit|sick|the vet|chargeback|lawyer|charged twice|duplicate payment|never received|not received|marked as delivered|says it was delivered|urgent|asap)/) || veryLate) urgency = 'high';\nif (category === 'spam') urgency = 'low';\n\n// sentiment\nlet sentiment = 'neutral';\nif (has(/(frustrat|unacceptable|disappoint|angry|worst|terrible|sick|vomit|damaged|crushed|torn|never received|charged twice|no answer|nobody has replied)/)) sentiment = 'negative';\nelse if (has(/(love|great|amazing|thank you so much|happy)/)) sentiment = 'positive';\n\n// extraction\nconst orderMatch = text.match(/\\bPP[-\\s]?(\\d{5})\\b/i);\nconst order_number = orderMatch ? `PP-${orderMatch[1]}` : null;\nconst emailInText = message.match(/[\\w.+-]+@[\\w-]+\\.[\\w.-]+/);\nconst customer_email = emailInText ? emailInText[0] : (/@/.test(from) ? from : null);\nconst PRODUCTS = [\n  ['kibble', 'Grain-Free Salmon Kibble'],\n  ['harness', 'TrailBuddy Reflective Harness'],\n  ['litter', 'CalmCat Clumping Litter'],\n  ['katzenstreu', 'CalmCat Clumping Litter'],\n  ['treats', 'Crunchy Duck Training Treats'],\n  ['panier', 'CosyNest Orthopedic Bed'],\n  ['bed', 'CosyNest Orthopedic Bed'],\n];\nconst productHit = PRODUCTS.find(([k]) => t.includes(k));\nconst product = productHit ? productHit[1] : null;\n\n// reply draft (templates; the real agent writes free text)\nconst SIGN = { en: 'The PawPantry Team', de: 'Ihr PawPantry-Team', fr: \"L'équipe PawPantry\" };\nconst BODY = {\n  order_status: {\n    en: `Thank you for your message. We are checking the status of ${order_number || 'your order'} and will send you the latest tracking details within one business day.`,\n    de: `Vielen Dank für Ihre Nachricht. Wir prüfen gerade den Status von ${order_number || 'Ihrer Bestellung'} und senden Ihnen innerhalb eines Werktages die aktuellen Sendungsdaten.`,\n    fr: `Merci pour votre message. Nous vérifions le statut de ${order_number || 'votre commande'} et vous enverrons le suivi sous un jour ouvré.`,\n  },\n  delivery_problem: {\n    en: `We are sorry about the trouble with ${order_number || 'your delivery'}. Our team is opening a case with the carrier and will get back to you with a solution within one business day.`,\n    de: `Es tut uns leid, dass es Probleme mit ${order_number || 'Ihrer Lieferung'} gibt. Wir klären das mit dem Versanddienstleister und melden uns innerhalb eines Werktages.`,\n    fr: `Nous sommes désolés pour le problème avec ${order_number || 'votre livraison'}. Nous ouvrons une réclamation auprès du transporteur et revenons vers vous sous un jour ouvré.`,\n  },\n  return_refund: {\n    en: `Thanks for letting us know. Unused items can be returned free of charge within 30 days. Our team will review ${order_number || 'your request'} and confirm the next steps by email.`,\n    de: `Danke für Ihre Nachricht. Unbenutzte Artikel können Sie innerhalb von 30 Tagen kostenlos zurücksenden. Wir prüfen ${order_number || 'Ihre Anfrage'} und bestätigen die nächsten Schritte per E-Mail.`,\n    fr: `Merci de nous avoir prévenus. Les articles non utilisés peuvent être retournés gratuitement sous 30 jours. Nous examinons ${order_number || 'votre demande'} et vous confirmons la marche à suivre par e-mail.`,\n  },\n  product_question: {\n    en: 'Thank you for your question. One of our pet-care advisers will reply with a detailed answer within one business day.',\n    de: 'Vielen Dank für Ihre Frage. Eine unserer Fachberaterinnen antwortet Ihnen innerhalb eines Werktages ausführlich.',\n    fr: 'Merci pour votre question. Un de nos conseillers vous répondra en détail sous un jour ouvré.',\n  },\n  complaint: {\n    en: 'We are very sorry to read this. A team lead will personally look into it and contact you within 24 hours.',\n    de: 'Es tut uns sehr leid, das zu lesen. Eine Teamleitung kümmert sich persönlich darum und meldet sich innerhalb von 24 Stunden.',\n    fr: 'Nous sommes vraiment désolés. Un responsable va examiner personnellement votre message et vous contactera sous 24 heures.',\n  },\n  wholesale_inquiry: {\n    en: 'Thank you for your interest in working with PawPantry. Our partnerships team will reply within one business day. Could you share your company name, country, VAT number and estimated monthly volume?',\n    de: 'Vielen Dank für Ihr Interesse an einer Zusammenarbeit. Unser Partnerteam meldet sich innerhalb eines Werktages. Bitte senden Sie uns Firmenname, Land, USt-IdNr. und das geschätzte Monatsvolumen.',\n    fr: 'Merci de votre intérêt pour PawPantry. Notre équipe partenariats vous répondra sous un jour ouvré. Pourriez-vous nous indiquer le nom de votre société, le pays, le numéro de TVA et le volume mensuel estimé ?',\n  },\n};\nBODY.billing = {\n  en: `We are sorry about the payment problem with ${order_number || 'your order'}. Our billing team will check the transaction and confirm the correction by email within one business day.`,\n  de: `Es tut uns leid, dass es bei ${order_number || 'Ihrer Bestellung'} ein Zahlungsproblem gibt. Unser Buchhaltungsteam prüft die Zahlung und bestätigt die Korrektur innerhalb eines Werktages per E-Mail.`,\n  fr: `Nous sommes désolés pour le problème de paiement sur ${order_number || 'votre commande'}. Notre service comptable vérifie la transaction et vous confirme la correction par e-mail sous un jour ouvré.`,\n};\nconst isBilling = category === 'return_refund' && has(/(charged twice|double charge|duplicate payment)/);\nconst lang = SIGN[language] ? language : 'en';\nconst body = BODY[isBilling ? 'billing' : category];\nconst reply_draft = category === 'spam' ? '' : `${body[lang]}\\n\\n${SIGN[lang]}`;\n\nconst LABEL = {\n  order_status: 'asks about the status of an order',\n  delivery_problem: 'reports a delivery problem',\n  return_refund: 'requests a return, refund or billing fix',\n  product_question: 'asks a product question',\n  complaint: 'complains and expects a personal answer',\n  wholesale_inquiry: 'asks about wholesale / trade pricing',\n  spam: 'sends unsolicited marketing (spam)',\n};\nconst summary = `[mock] Customer ${LABEL[category]}.${order_number ? ` Order: ${order_number}.` : ''}${product ? ` Product: ${product}.` : ''}`;\n\nreturn {\n  json: {\n    output: {\n      category,\n      urgency,\n      sentiment,\n      language,\n      order_number,\n      product,\n      customer_email,\n      order_status: null,\n      summary,\n      reply_draft,\n      confidence: matched ? 0.9 : 0.55,\n    },\n  },\n};\n"
+      },
+      "id": "19b8208a-b411-553f-9c7a-66129562e95d",
+      "name": "Mock AI output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        840,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Triage this incoming customer message.\n\nChannel: {{ $json.channel }}\nFrom: {{ $json.from || 'unknown' }}\nSubject: {{ $json.subject || '(no subject)' }}\n\nMessage:\n\"\"\"\n{{ $json.message }}\n\"\"\"\n",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "You are the inbox triage agent for PawPantry, an online pet-supplies shop that ships across the EU.\nFor every customer message: classify it, extract the key data, set the urgency and draft a reply that a support agent can send after a quick check.\n\n## Categories (choose exactly one)\n- order_status: the customer asks where an order is or when it will arrive, and nothing has gone wrong yet.\n- delivery_problem: something went wrong with the delivery: several days late, lost, damaged, marked as delivered but not received, wrong address.\n- return_refund: return, exchange, refund, cancellation or a billing problem (for example charged twice).\n- product_question: questions about products, sizes, ingredients, suitability, stock or shipping options before buying.\n- complaint: the main point is dissatisfaction with product quality or safety (for example a pet became ill) or with our service (ignored emails, rude staff), and the customer wants us to act.\n- wholesale_inquiry: a business asks about bulk or trade prices, reselling or partnerships.\n- spam: unsolicited marketing, SEO or link offers, phishing, scams, or anything unrelated to the shop.\n\n## Urgency\n- high: pet health or safety; the customer was charged incorrectly; parcel lost or marked as delivered but not received; delivery more than 5 business days late; threat of a chargeback, legal action or a public review; the customer says they already wrote before without an answer.\n- normal: everything else that needs an answer from support within one business day.\n- low: general product questions, wholesale inquiries, spam.\n\n## Extraction\n- order_number: PawPantry order numbers look like PP-12345. Normalise to that format; null if absent.\n- product: short product name if one is mentioned, otherwise null.\n- customer_email: an email address written in the message, otherwise the sender address if it is an email, otherwise null.\n- language: ISO 639-1 code of the language the customer wrote in (en, de, fr, ...).\n- sentiment: positive, neutral or negative.\n- summary: one English sentence (max 30 words) for the support team.\n- confidence: a number from 0 to 1 for how sure you are about category and urgency.\n\n## Tool\nIf the message contains an order number, call the tool Order_lookup_tool once with order_number and customer_email before you draft the reply. Use only the facts it returns (status, carrier, dates). Put the returned status into order_status; use null if you did not call the tool or the order was not found. If the tool returns found=false or email_matches=false, do not reveal any order details: ask the customer to confirm the order number or to write from the email address used at checkout.\n\n## Reply draft: tone guide\n- Write in the customer's language.\n- Warm, calm and concise: 60 to 120 words, short paragraphs, no emojis.\n- Open with a thank-you or an apology that fits the situation. If the customer mentions their pet's name, use it.\n- Be concrete about the next step and who does what. Never invent tracking numbers, dates, discounts or refunds. Do not promise refunds or compensation: say that the team will review and confirm.\n- Policies you may quote: free returns within 30 days for unused items in the original packaging; opened food can be returned only for quality issues; damaged or wrong items are replaced free of charge once we receive a photo; standard EU delivery takes 2 to 5 business days.\n- Pet health issues: recommend contacting a vet if the pet is still unwell, ask for the batch number printed on the pack, and say that a team lead will follow up personally within 24 hours.\n- Wholesale: thank them, say that the partnerships team replies within one business day, and ask for company name, country, VAT number and estimated monthly volume.\n- Spam: reply_draft must be an empty string.\n- Sign off as \"The PawPantry Team\". Never sign with a person's name.\n\nReturn only the structured result defined by the output schema.",
+          "maxIterations": 5,
+          "enableStreaming": false
+        }
+      },
+      "id": "c680aa47-3760-5a25-9d16-de5c8a946d55",
+      "name": "AI Triage Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        800,
+        420
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-4.1-mini",
+          "cachedResultName": "gpt-4.1-mini"
+        },
+        "builtInTools": {},
+        "options": {
+          "temperature": 0.2,
+          "maxTokens": 900,
+          "timeout": 45000,
+          "maxRetries": 2
+        }
+      },
+      "id": "4cba0591-b0c5-5fdb-ad1f-5bd867d8a9b3",
+      "name": "OpenAI Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        740,
+        640
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "description": "Look up a PawPantry order by its number. Input: order_number (e.g. PP-10418) and customer_email. Returns status, carrier, dates and items as JSON, or found=false.",
+        "jsCode": "// Mock order database for the demo shop \"PawPantry\".\n// In production, replace this with a WooCommerce / Shopify / ERP lookup\n// (HTTP Request tool or a sub-workflow) - the agent only sees the JSON below.\nconst ORDERS = {\n  'PP-10412': { email: 'chien.heureux@example.fr', status: 'delivered', carrier: 'Colissimo', placed_at: '2026-10-03', delivered_at: '2026-10-08', items: ['CosyNest Orthopedic Bed L'], total_eur: 79.0 },\n  'PP-10418': { email: 'buyer.4821@example.com', status: 'shipped', carrier: 'DHL', placed_at: '2026-10-14', shipped_at: '2026-10-16', eta: '2026-10-21', items: ['Grain-Free Salmon Kibble 12 kg'], total_eur: 64.9 },\n  'PP-10425': { email: 'farmhouse.dogs@example.com', status: 'delivered', carrier: 'DPD', placed_at: '2026-10-12', delivered_at: '2026-10-17', items: ['Grain-Free Salmon Kibble 12 kg', 'Crunchy Duck Training Treats 500 g'], total_eur: 76.8 },\n  'PP-10427': { email: 'pawsome.home@example.net', status: 'in_transit_delayed', carrier: 'GLS', placed_at: '2026-10-08', eta: '2026-10-13', last_scan: '2026-10-15 hub Duisburg', items: ['CosyNest Orthopedic Bed L'], total_eur: 89.0 },\n  'PP-10431': { email: 'katzenhaushalt@example.de', status: 'processing', carrier: 'DHL', placed_at: '2026-10-19', eta: '2026-10-24', items: ['CalmCat Clumping Litter 10 L x3'], total_eur: 41.7 },\n  'PP-10433': { email: 'trail.runner.dog@example.org', status: 'delivered', carrier: 'DHL', placed_at: '2026-10-11', delivered_at: '2026-10-15', items: ['TrailBuddy Reflective Harness M'], total_eur: 34.9 },\n  'PP-10436': { email: 'worried.beagle.owner@example.com', status: 'delivered', carrier: 'DPD', placed_at: '2026-10-09', delivered_at: '2026-10-13', items: ['Crunchy Duck Training Treats 500 g (batch CD-2609)'], total_eur: 12.9 },\n  'PP-10439': { email: 'apartment.12b@example.org', status: 'delivered', carrier: 'GLS', placed_at: '2026-10-17', delivered_at: '2026-10-22 14:02', proof_of_delivery: 'left at front door, no signature', items: ['Scratching Post Tower', 'CalmCat Clumping Litter 10 L'], total_eur: 89.0 },\n  'PP-10441': { email: 'catlady.billing@example.com', status: 'processing', placed_at: '2026-10-21', payment_note: 'two card captures of EUR 54.90 on 2026-10-21', items: ['Indoor Cat Food 4 kg', 'Feather Wand Toy'], total_eur: 54.9 },\n};\n\nconst raw = String(query.order_number ?? '').toUpperCase();\nconst digits = raw.replace(/[^0-9]/g, '');\nconst key = digits ? `PP-${digits}` : raw.trim();\nconst order = ORDERS[key];\nif (!order) {\n  return JSON.stringify({ found: false, order_number: key, note: 'No order with this number. Ask the customer to double-check it.' });\n}\n\nconst email = String(query.customer_email ?? '').trim().toLowerCase();\nif (email && email !== order.email) {\n  return JSON.stringify({ found: true, order_number: key, email_matches: false, note: 'The email does not match this order. Do not share order details.' });\n}\n\nconst { email: _ignored, ...details } = order;\nreturn JSON.stringify({ found: true, order_number: key, email_matches: email ? true : null, ...details });\n",
+        "specifyInputSchema": true,
+        "schemaType": "manual",
+        "inputSchema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"order_number\": {\n      \"type\": \"string\",\n      \"description\": \"Order number, e.g. PP-10418\"\n    },\n    \"customer_email\": {\n      \"type\": \"string\",\n      \"description\": \"Customer email address, empty string if unknown\"\n    }\n  },\n  \"required\": [\n    \"order_number\"\n  ]\n}"
+      },
+      "id": "f16f94e1-f0b6-5f91-8e81-f98eadbb0bc3",
+      "name": "Order lookup tool",
+      "type": "@n8n/n8n-nodes-langchain.toolCode",
+      "typeVersion": 1.3,
+      "position": [
+        900,
+        640
+      ]
+    },
+    {
+      "parameters": {
+        "schemaType": "manual",
+        "inputSchema": "{\n  \"type\": \"object\",\n  \"additionalProperties\": false,\n  \"required\": [\n    \"category\",\n    \"urgency\",\n    \"sentiment\",\n    \"language\",\n    \"order_number\",\n    \"product\",\n    \"customer_email\",\n    \"order_status\",\n    \"summary\",\n    \"reply_draft\",\n    \"confidence\"\n  ],\n  \"properties\": {\n    \"category\": {\n      \"type\": \"string\",\n      \"enum\": [\n        \"order_status\",\n        \"return_refund\",\n        \"product_question\",\n        \"delivery_problem\",\n        \"complaint\",\n        \"wholesale_inquiry\",\n        \"spam\"\n      ]\n    },\n    \"urgency\": {\n      \"type\": \"string\",\n      \"enum\": [\n        \"low\",\n        \"normal\",\n        \"high\"\n      ]\n    },\n    \"sentiment\": {\n      \"type\": \"string\",\n      \"enum\": [\n        \"positive\",\n        \"neutral\",\n        \"negative\"\n      ]\n    },\n    \"language\": {\n      \"type\": \"string\",\n      \"description\": \"ISO 639-1 code of the customer's language, e.g. en, de, fr\"\n    },\n    \"order_number\": {\n      \"type\": [\n        \"string\",\n        \"null\"\n      ],\n      \"description\": \"Order number normalised to PP-12345, or null\"\n    },\n    \"product\": {\n      \"type\": [\n        \"string\",\n        \"null\"\n      ],\n      \"description\": \"Product mentioned by the customer, or null\"\n    },\n    \"customer_email\": {\n      \"type\": [\n        \"string\",\n        \"null\"\n      ],\n      \"description\": \"Customer email address, or null\"\n    },\n    \"order_status\": {\n      \"type\": [\n        \"string\",\n        \"null\"\n      ],\n      \"description\": \"Status returned by Order_lookup_tool, or null\"\n    },\n    \"summary\": {\n      \"type\": \"string\",\n      \"description\": \"One English sentence for the support team\"\n    },\n    \"reply_draft\": {\n      \"type\": \"string\",\n      \"description\": \"Reply in the customer's language; empty string for spam\"\n    },\n    \"confidence\": {\n      \"type\": \"number\",\n      \"minimum\": 0,\n      \"maximum\": 1\n    }\n  }\n}"
+      },
+      "id": "428aec4c-3944-5e60-a15f-3b1baf24c9e0",
+      "name": "Structured Output Parser",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        1060,
+        640
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Validates the AI answer (or the mock) and flattens it into one record.\n// Anything missing, malformed or low-confidence -> valid = false\n// -> \"Human review\" route. Agent errors (error output) land here too.\nconst settings = $('Settings & normalize').item.json;\nconst ENUMS = {\n  category: ['order_status', 'return_refund', 'product_question', 'delivery_problem', 'complaint', 'wholesale_inquiry', 'spam'],\n  urgency: ['low', 'normal', 'high'],\n  sentiment: ['positive', 'neutral', 'negative'],\n};\nconst REQUIRED = ['category', 'urgency', 'sentiment', 'language', 'summary', 'reply_draft', 'confidence'];\nconst errors = [];\n\nlet triage = null;\nif ($json.error) {\n  const msg = typeof $json.error === 'string' ? $json.error : ($json.error.message || JSON.stringify($json.error));\n  errors.push(`AI step failed: ${String(msg).slice(0, 300)}`);\n} else {\n  triage = $json.output;\n  if (typeof triage === 'string') {\n    try { triage = JSON.parse(triage); } catch (e) { errors.push('AI output is not valid JSON'); triage = null; }\n  }\n  if (!triage || typeof triage !== 'object' || Array.isArray(triage)) {\n    if (!errors.length) errors.push('AI output is missing');\n    triage = null;\n  }\n}\n\nif (triage) {\n  for (const field of REQUIRED) {\n    if (triage[field] === undefined || triage[field] === null) errors.push(`missing ${field}`);\n  }\n  for (const [field, allowed] of Object.entries(ENUMS)) {\n    if (triage[field] != null && !allowed.includes(triage[field])) errors.push(`invalid ${field}: ${triage[field]}`);\n  }\n  if (typeof triage.summary === 'string' && !triage.summary.trim()) errors.push('empty summary');\n  if (triage.category !== 'spam' && triage.reply_draft != null && !String(triage.reply_draft).trim()) errors.push('empty reply_draft');\n  const conf = Number(triage.confidence);\n  if (triage.confidence != null && (Number.isNaN(conf) || conf < settings.min_confidence)) {\n    errors.push(`low confidence (${triage.confidence})`);\n  }\n}\n\nconst t = triage || {};\nconst str = (v) => (v === undefined || v === null ? '' : String(v));\nreturn {\n  json: {\n    received_at: settings.received_at,\n    channel: settings.channel,\n    sender: settings.from,\n    subject: settings.subject,\n    message: settings.message,\n    category: str(t.category),\n    urgency: str(t.urgency),\n    sentiment: str(t.sentiment),\n    language: str(t.language),\n    order_number: str(t.order_number),\n    product: str(t.product),\n    customer_email: str(t.customer_email),\n    order_status: str(t.order_status),\n    summary: str(t.summary),\n    reply_draft: str(t.reply_draft),\n    confidence: Number.isFinite(Number(t.confidence)) ? Number(t.confidence) : 0,\n    valid: errors.length === 0,\n    validation_errors: errors.join('; '),\n    mode: settings.mock_mode === true ? 'mock' : 'live',\n  },\n};\n"
+      },
+      "id": "7bfb2087-e1fc-50fa-a3ff-de0afa1e01e1",
+      "name": "Validate triage",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1260,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "d72b80d4-44c6-5a01-b96b-67a48c5027d8",
+                    "leftValue": "={{ $json.valid }}",
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "false",
+                      "singleValue": true
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Needs review"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "1ca1dd75-68f4-592e-9053-070ce59a1d50",
+                    "leftValue": "={{ $json.category }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "spam"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Spam"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "2fd2caea-ecf8-5d55-8bd2-0aa47e7d78f1",
+                    "leftValue": "={{ $json.urgency }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "high"
+                  },
+                  {
+                    "id": "df2a6dfd-9e07-5a11-ab89-f6fee2e242b1",
+                    "leftValue": "={{ $json.category }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "complaint"
+                  }
+                ],
+                "combinator": "or"
+              },
+              "renameOutput": true,
+              "outputKey": "Urgent"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "ed42bf8e-bd1b-55bf-b75a-62d47c376cc5",
+                    "leftValue": "={{ $json.category }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "wholesale_inquiry"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Wholesale"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "Support"
+        }
+      },
+      "id": "5a852134-0114-5d69-9851-b834bbe77c3e",
+      "name": "Route",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1480,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "545c67ed-89c3-5f6d-b228-db97bbe6e988",
+              "name": "route",
+              "value": "human_review",
+              "type": "string"
+            },
+            {
+              "id": "78d9655c-3e60-5b55-9a15-a0b5b5c7f034",
+              "name": "queue",
+              "value": "triage-review",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "3271e15a-8ac9-5b37-82b5-8d6fac827786",
+      "name": "Human review",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1700,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "8e099e4c-309c-5e4a-a8bc-336245854c88",
+              "name": "route",
+              "value": "spam",
+              "type": "string"
+            },
+            {
+              "id": "508baadd-a01e-572b-90e2-d8a387f46fc0",
+              "name": "queue",
+              "value": "discarded",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "8e9411f5-563c-54da-b606-9b2c8f2da4ae",
+      "name": "Spam (discard)",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1700,
+        250
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "ffb9e71e-2069-5932-808a-e92619716fde",
+              "name": "route",
+              "value": "urgent",
+              "type": "string"
+            },
+            {
+              "id": "7ef9d50a-cc2d-5c5d-a622-181f1b5b0fce",
+              "name": "queue",
+              "value": "support-urgent",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "b0f87b6b-e863-5192-9fd9-03bd35f35b22",
+      "name": "Urgent",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1700,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "8e163a36-77f2-58b9-bdad-e2f3f9d6c180",
+              "name": "route",
+              "value": "wholesale",
+              "type": "string"
+            },
+            {
+              "id": "1defeaad-d044-5dae-ab3d-e99c32bc13d7",
+              "name": "queue",
+              "value": "sales",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "85e97b25-7df8-50af-984b-069f0710f900",
+      "name": "Sales (wholesale)",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1700,
+        550
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "6fd6ded1-3cfe-532d-af2c-36706ccf3cfe",
+              "name": "route",
+              "value": "support",
+              "type": "string"
+            },
+            {
+              "id": "7876ca8f-3896-58cf-a0f5-c43d3ab79830",
+              "name": "queue",
+              "value": "support",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "bf261d38-216f-5302-a216-499cb748b4f0",
+      "name": "Support queue",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1700,
+        700
+      ]
+    },
+    {
+      "parameters": {
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "triage_log"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "received_at": "={{ $json.received_at }}",
+            "channel": "={{ $json.channel }}",
+            "sender": "={{ $json.sender }}",
+            "subject": "={{ $json.subject }}",
+            "message": "={{ $json.message }}",
+            "route": "={{ $json.route }}",
+            "queue": "={{ $json.queue }}",
+            "category": "={{ $json.category }}",
+            "urgency": "={{ $json.urgency }}",
+            "sentiment": "={{ $json.sentiment }}",
+            "language": "={{ $json.language }}",
+            "order_number": "={{ $json.order_number }}",
+            "product": "={{ $json.product }}",
+            "customer_email": "={{ $json.customer_email }}",
+            "order_status": "={{ $json.order_status }}",
+            "summary": "={{ $json.summary }}",
+            "reply_draft": "={{ $json.reply_draft }}",
+            "confidence": "={{ $json.confidence }}",
+            "needs_review": "={{ !$json.valid }}",
+            "validation_errors": "={{ $json.validation_errors }}",
+            "mode": "={{ $json.mode }}",
+            "execution_id": "={{ $execution.id }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "received_at",
+              "displayName": "received_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "channel",
+              "displayName": "channel",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "sender",
+              "displayName": "sender",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "subject",
+              "displayName": "subject",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "message",
+              "displayName": "message",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "route",
+              "displayName": "route",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "queue",
+              "displayName": "queue",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "category",
+              "displayName": "category",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "urgency",
+              "displayName": "urgency",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "sentiment",
+              "displayName": "sentiment",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "language",
+              "displayName": "language",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "order_number",
+              "displayName": "order_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "product",
+              "displayName": "product",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "customer_email",
+              "displayName": "customer_email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "order_status",
+              "displayName": "order_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "summary",
+              "displayName": "summary",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "reply_draft",
+              "displayName": "reply_draft",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "confidence",
+              "displayName": "confidence",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "needs_review",
+              "displayName": "needs_review",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "validation_errors",
+              "displayName": "validation_errors",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "mode",
+              "displayName": "mode",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "execution_id",
+              "displayName": "execution_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "cbf8c23a-bbe9-548c-8997-98e16ce93f00",
+      "name": "Log to Data Table",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1920,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ {\n  ok: true,\n  log_id: $json.id,\n  route: $json.route,\n  queue: $json.queue,\n  needs_human_review: $json.needs_review,\n  triage: {\n    category: $json.category || null,\n    urgency: $json.urgency || null,\n    sentiment: $json.sentiment || null,\n    language: $json.language || null,\n    confidence: $json.confidence,\n    summary: $json.summary || null\n  },\n  extracted: {\n    order_number: $json.order_number || null,\n    product: $json.product || null,\n    customer_email: $json.customer_email || null,\n    order_status: $json.order_status || null\n  },\n  reply_draft: $json.reply_draft || null,\n  validation_errors: $json.validation_errors ? $json.validation_errors.split('; ') : [],\n  mode: $json.mode,\n  execution_id: $execution.id\n} }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "89c9d0ce-6fa4-57c7-bd6f-4d739620d6b4",
+      "name": "Respond with triage",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        2120,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "c21b3120-7c90-5fd3-8b48-3ce77c6fc9c2",
+                    "leftValue": "={{ $json.route }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "urgent"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Urgent"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "1963caf4-3642-5c9d-8adc-460f57aed0db",
+                    "leftValue": "={{ $json.route }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "wholesale"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Wholesale"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "6b980d66-953f-56cf-b782-2b1d8c25b52b",
+                    "leftValue": "={{ $json.route }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "support"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Support"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "3e28aed8-a3ea-596d-900f-b6b65645b15b",
+                    "leftValue": "={{ $json.route }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "human_review"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Needs review"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "de79963b-6bd4-5c0e-af15-42a5e031f93b",
+      "name": "Notify by route",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        2340,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "#support-urgent"
+        },
+        "text": "=:rotating_light: *Urgent {{ $json.category }}* ({{ $json.language }}) from {{ $json.sender }}\n>{{ $json.summary }}\nOrder: {{ $json.order_number || 'n/a' }} | Log #{{ $json.id }}\n\n*Draft reply:*\n{{ $json.reply_draft }}",
+        "otherOptions": {
+          "includeLinkToWorkflow": false
+        }
+      },
+      "id": "edc65c78-dc65-5ff8-b068-7ff48a01c337",
+      "name": "Slack: urgent alert",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [
+        2560,
+        100
+      ],
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "fromEmail": "triage@pawpantry.example",
+        "toEmail": "sales@pawpantry.example",
+        "subject": "=Wholesale inquiry: {{ $json.subject || $json.sender }}",
+        "emailFormat": "text",
+        "text": "=New wholesale inquiry from {{ $json.sender }} ({{ $json.language }}).\n\nSummary: {{ $json.summary }}\n\nOriginal message:\n{{ $json.message }}\n\nSuggested reply:\n{{ $json.reply_draft }}\n\nTriage log #{{ $json.id }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "9574754c-0d46-56c9-8985-e60e6e4980c5",
+      "name": "Email: sales team",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        2560,
+        300
+      ],
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_SUPPORT_CHAT_ID",
+        "text": "=New {{ $json.category }} ({{ $json.urgency }}) from {{ $json.sender }}\n{{ $json.summary }}\nOrder: {{ $json.order_number || 'n/a' }} | Log #{{ $json.id }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "id": "c72ff127-b5be-5a9b-8bac-e549bc0a449d",
+      "name": "Telegram: support queue",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2560,
+        500
+      ],
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "#triage-review"
+        },
+        "text": "=:mag: *Needs human review* - message from {{ $json.sender }} (channel: {{ $json.channel }})\nReason: {{ $json.validation_errors }}\n>{{ $json.message.slice(0, 300) }}\nLog #{{ $json.id }}",
+        "otherOptions": {
+          "includeLinkToWorkflow": false
+        }
+      },
+      "id": "5a06ee93-d396-56af-b6c4-4ece47545410",
+      "name": "Slack: review queue",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [
+        2560,
+        700
+      ],
+      "disabled": true
+    },
+    {
+      "parameters": {},
+      "id": "f3b7810a-1c87-5768-a769-2ae5ab49fd28",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        800
+      ]
+    },
+    {
+      "parameters": {
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "triage_errors"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "failed_at": "={{ $now.toISO() }}",
+            "workflow": "={{ $json.workflow.name }}",
+            "node": "={{ $json.execution.lastNodeExecuted || $json.execution.error?.node?.name || '' }}",
+            "error_message": "={{ String($json.execution.error?.message || 'unknown error').slice(0, 1000) }}",
+            "execution_id": "={{ $json.execution.id || '' }}",
+            "execution_url": "={{ $json.execution.url || '' }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "failed_at",
+              "displayName": "failed_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "workflow",
+              "displayName": "workflow",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "node",
+              "displayName": "node",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "error_message",
+              "displayName": "error_message",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "execution_id",
+              "displayName": "execution_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "execution_url",
+              "displayName": "execution_url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "6bc82abd-251c-5539-9706-7859521e977c",
+      "name": "Log error",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        200,
+        800
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "triage@pawpantry.example",
+        "toEmail": "ops@pawpantry.example",
+        "subject": "=[n8n] Inbox triage failed at node {{ $json.node }}",
+        "emailFormat": "text",
+        "text": "=The inbox triage workflow failed.\n\nNode: {{ $json.node }}\nError: {{ $json.error_message }}\nExecution: {{ $json.execution_url }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "f1e080b2-c44d-5698-9075-2a75b9d02cbd",
+      "name": "Email: ops alert",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        400,
+        800
+      ],
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "content": "# AI Inbox Triage for an online shop\nCustomer messages arrive on **POST /webhook/inbox** `{from, subject, message, channel}`. An AI agent classifies them, extracts order number / product / email, sets urgency, looks up the order and drafts a reply in the customer's language. The result is validated, routed, logged to a Data Table and returned to the caller; notifications go out per route.\n\n**Setup:** create Data Tables `triage_log` + `triage_errors` (or run `scripts/bootstrap.py`), select your OpenAI credential, set this workflow as its own *Error workflow*, publish. Demo shop: PawPantry (fictional). Author: Aleks T.",
+        "height": 210,
+        "width": 1240,
+        "color": 7
+      },
+      "id": "cce80b5f-495e-5523-91d2-9be86ce5b39d",
+      "name": "Note: overview",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -80,
+        -260
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 1 · Intake\nWebhook in, trim + defaults, reject empty messages (HTTP 400) before any AI cost.\n`mock_mode` and `min_confidence` live in **Settings & normalize**.",
+        "height": 620,
+        "width": 780,
+        "color": 7
+      },
+      "id": "a72d7b53-83b2-52cd-9659-59fbf9fe9ea1",
+      "name": "Note: intake",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -80,
+        -20
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 2 · AI triage\nAgent + `gpt-4.1-mini` + strict JSON schema; it calls **Order lookup tool** before drafting the reply.",
+        "height": 960,
+        "width": 500,
+        "color": 5
+      },
+      "id": "d6b04bb8-7e0d-5452-be71-3c8bf3427ade",
+      "name": "Note: ai",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        700,
+        -20
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### MOCK MODE (off by default)\nTest without an API key: set `mock_mode = true` in **Settings & normalize**. Keyword rules then stand in for the agent with the same output shape.",
+        "height": 280,
+        "width": 460,
+        "color": 3
+      },
+      "id": "7204b622-65f7-543c-8341-0db1b5ce0d91",
+      "name": "Note: mock",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        720,
+        90
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 3 · Validation\nSchema, enums, confidence. Fails -> human review.",
+        "height": 620,
+        "width": 220,
+        "color": 6
+      },
+      "id": "d5addd8e-e884-5f16-b1d0-2dbeff6c5d03",
+      "name": "Note: validation",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1200,
+        -20
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 4 · Routing\nFirst match wins: review, spam, urgent (high or complaint), wholesale, else support.",
+        "height": 960,
+        "width": 440,
+        "color": 4
+      },
+      "id": "aead38af-6347-527b-bc07-cf32bef2760b",
+      "name": "Note: routing",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1420,
+        -20
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 5 · Logging\nOne row per message in Data Table `triage_log`, then the structured result is returned to the caller.",
+        "height": 620,
+        "width": 420,
+        "color": 6
+      },
+      "id": "6bda2c53-669a-5e4e-9501-cfac0b5a08e8",
+      "name": "Note: logging",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1860,
+        -20
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 6 · Notifications\nSent after the response. Spam is silently discarded.",
+        "height": 960,
+        "width": 440,
+        "color": 2
+      },
+      "id": "311c4faa-df27-5840-b5d6-21648f1f71f8",
+      "name": "Note: notifications",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2280,
+        -20
+      ]
+    },
+    {
+      "parameters": {
+        "content": "**Configure your credentials**, then enable these nodes (they are disabled in the demo).",
+        "height": 130,
+        "width": 190,
+        "color": 3
+      },
+      "id": "939adb00-9195-54f0-912c-1aa4c6aca099",
+      "name": "Note: credentials",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2300,
+        640
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 7 · Error handling\nAny failed production run triggers this branch: the error is logged to `triage_errors` (+ optional email).",
+        "height": 360,
+        "width": 780,
+        "color": 3
+      },
+      "id": "8142f408-4f24-5fab-90b4-6a8f073c1c7d",
+      "name": "Note: errors",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -80,
+        650
+      ]
+    }
+  ],
+  "connections": {
+    "Inbox webhook": {
+      "main": [
+        [
+          {
+            "node": "Settings & normalize",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Settings & normalize": {
+      "main": [
+        [
+          {
+            "node": "Check request & mode",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check request & mode": {
+      "main": [
+        [
+          {
+            "node": "Respond 400",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mock AI output",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "AI Triage Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Triage Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Order lookup tool": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Triage Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structured Output Parser": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "AI Triage Agent",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Triage Agent": {
+      "main": [
+        [
+          {
+            "node": "Validate triage",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Validate triage",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mock AI output": {
+      "main": [
+        [
+          {
+            "node": "Validate triage",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate triage": {
+      "main": [
+        [
+          {
+            "node": "Route",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route": {
+      "main": [
+        [
+          {
+            "node": "Human review",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Spam (discard)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Urgent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Sales (wholesale)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Support queue",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Human review": {
+      "main": [
+        [
+          {
+            "node": "Log to Data Table",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Spam (discard)": {
+      "main": [
+        [
+          {
+            "node": "Log to Data Table",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Urgent": {
+      "main": [
+        [
+          {
+            "node": "Log to Data Table",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sales (wholesale)": {
+      "main": [
+        [
+          {
+            "node": "Log to Data Table",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Support queue": {
+      "main": [
+        [
+          {
+            "node": "Log to Data Table",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log to Data Table": {
+      "main": [
+        [
+          {
+            "node": "Respond with triage",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond with triage": {
+      "main": [
+        [
+          {
+            "node": "Notify by route",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify by route": {
+      "main": [
+        [
+          {
+            "node": "Slack: urgent alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Email: sales team",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Telegram: support queue",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Slack: review queue",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Log error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log error": {
+      "main": [
+        [
+          {
+            "node": "Email: ops alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}

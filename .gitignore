@@ -1,0 +1,6 @@
+.env
+.n8n-local.json
+results*.json
+results*.txt
+__pycache__/
+*.pyc

@@ -1,0 +1,114 @@
+[
+  {
+    "id": "01-order-status",
+    "channel": "email",
+    "from": "buyer.4821@example.com",
+    "subject": "Where is my order?",
+    "message": "Hello, I ordered a 12 kg bag of the Grain-Free Salmon Kibble last week (order PP-10418) and I haven't had any update since the confirmation email. Could you tell me when it will arrive? Thanks!",
+    "expected": { "category": "order_status", "route": "support" }
+  },
+  {
+    "id": "02-late-delivery",
+    "channel": "contact_form",
+    "from": "pawsome.home@example.net",
+    "subject": "Dog bed still not here",
+    "message": "My order PP-10427 (CosyNest orthopedic bed, size L) was supposed to arrive on the 13th. It has now been 9 days and it is still not here. The tracking page hasn't changed in a week. This is really frustrating, our old dog needs that bed. What is going on?",
+    "expected": { "category": "delivery_problem", "route": "urgent" }
+  },
+  {
+    "id": "03-return-size",
+    "channel": "email",
+    "from": "trail.runner.dog@example.org",
+    "subject": "Harness too small - exchange?",
+    "message": "Hi team, the TrailBuddy reflective harness (size M) from order PP-10433 is too small for my Labrador. It's unused and still in the bag. Can I return it or exchange it for an L? How do I send it back?",
+    "expected": { "category": "return_refund", "route": "support" }
+  },
+  {
+    "id": "04-charged-twice",
+    "channel": "email",
+    "from": "catlady.billing@example.com",
+    "subject": "Charged twice for one order",
+    "message": "I was charged twice for order PP-10441 - two payments of EUR 54.90 are on my card statement from the same day. Please refund the duplicate payment as soon as possible.",
+    "expected": { "category": "return_refund", "route": "urgent" }
+  },
+  {
+    "id": "05-puppy-food",
+    "channel": "live_chat",
+    "from": "new.puppy.parent@example.com",
+    "subject": "",
+    "message": "Is the Grain-Free Salmon Kibble suitable for a 4-month-old puppy with a sensitive stomach? Or do you have a puppy version? He's a medium-size breed.",
+    "expected": { "category": "product_question", "route": "support" }
+  },
+  {
+    "id": "06-litter-question",
+    "channel": "contact_form",
+    "from": "two.cats.flat@example.net",
+    "subject": "CalmCat litter question",
+    "message": "Does the CalmCat clumping litter produce a lot of dust? One of my cats has asthma. Also, is the 10 L bag the biggest size you sell?",
+    "expected": { "category": "product_question", "route": "support" }
+  },
+  {
+    "id": "07-damaged-parcel",
+    "channel": "email",
+    "from": "farmhouse.dogs@example.com",
+    "subject": "Parcel arrived damaged",
+    "message": "Hi, my parcel for order PP-10425 arrived today with the box crushed and the kibble bag torn open - food everywhere. The training treats in the same box are fine. I have photos. Can you send a replacement bag?",
+    "expected": { "category": "delivery_problem", "route": "support" }
+  },
+  {
+    "id": "08-marked-delivered",
+    "channel": "email",
+    "from": "apartment.12b@example.org",
+    "subject": "Marked as delivered but I never got it",
+    "message": "The tracking for order PP-10439 says it was delivered yesterday at 14:02, but I never received anything. I was at home all afternoon and my neighbours don't have it either. Please help, I paid EUR 89 for this order.",
+    "expected": { "category": "delivery_problem", "route": "urgent" }
+  },
+  {
+    "id": "09-pet-sick",
+    "channel": "email",
+    "from": "worried.beagle.owner@example.com",
+    "subject": "My dog got sick after your treats",
+    "message": "Two days after starting the Crunchy Duck Training Treats from order PP-10436 my beagle started vomiting and we had to go to the vet. I want to know what is in these treats and whether other customers have reported this. If I don't hear back today I will post a review warning other dog owners.",
+    "expected": { "category": "complaint", "route": "urgent" }
+  },
+  {
+    "id": "10-no-reply",
+    "channel": "contact_form",
+    "from": "still.waiting@example.net",
+    "subject": "Third time writing - no answer",
+    "message": "This is the third time I am writing to you about my cancelled subscription and nobody has replied in over a week. Honestly this is unacceptable customer service. I expect an answer from a real person.",
+    "expected": { "category": "complaint", "route": "urgent" }
+  },
+  {
+    "id": "11-wholesale",
+    "channel": "email",
+    "from": "purchasing@muddypaws-grooming.example",
+    "subject": "Wholesale prices for our grooming salons",
+    "message": "Hello, we run three dog grooming salons in Lyon and would like to resell your CalmCat litter and the Crunchy Duck treats. We would start with roughly 200 units per month. Do you offer wholesale or trade pricing, and what are the minimum order quantities?",
+    "expected": { "category": "wholesale_inquiry", "route": "wholesale" }
+  },
+  {
+    "id": "12-spam",
+    "channel": "contact_form",
+    "from": "growth@rank-boost-seo.example",
+    "subject": "Rank #1 on Google in 30 days - guaranteed",
+    "message": "Dear website owner, we noticed your shop is not on the first page of Google. Our SEO experts will build 500 high-authority backlinks for only $99. Limited offer - click here to claim your free audit and boost your sales today!",
+    "expected": { "category": "spam", "route": "spam" }
+  },
+  {
+    "id": "13-de-order-status",
+    "channel": "email",
+    "from": "katzenhaushalt@example.de",
+    "subject": "Bestellung PP-10431",
+    "message": "Hallo, ich habe am Montag drei Packungen CalmCat Katzenstreu bestellt (Bestellung PP-10431). Wann wird die Bestellung geliefert? Ich habe noch keine Versandbestätigung bekommen. Vielen Dank!",
+    "expected": { "category": "order_status", "route": "support" }
+  },
+  {
+    "id": "14-fr-return",
+    "channel": "email",
+    "from": "chien.heureux@example.fr",
+    "subject": "Retour d'un panier pour chien",
+    "message": "Bonjour, j'ai reçu le panier orthopédique CosyNest (commande PP-10412) mais il est trop grand pour mon chien. Il n'a pas été utilisé. Comment puis-je le retourner et être remboursé ? Merci d'avance.",
+    "expected": { "category": "return_refund", "route": "support" }
+  }
+]

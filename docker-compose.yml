@@ -1,0 +1,44 @@
+# Local n8n for the "AI Inbox Triage" demo.
+#
+#   cp .env.example .env            # optional: port, timezone, encryption key
+#   docker compose -p n8n-triage-demo up -d
+#   open http://localhost:5678
+#
+# The image is pinned on purpose: the workflow JSON was built and tested
+# against n8n 2.44.6 (the "stable" tag on 2026-10-25). Bump it deliberately,
+# then re-test with scripts/send_samples.py.
+#
+# Data (workflows, credentials, Data Tables, executions) lives in the named
+# volume n8n_data. `docker compose -p n8n-triage-demo down -v` deletes it.
+
+services:
+  n8n:
+    image: n8nio/n8n:2.44.6
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${N8N_PORT:-5678}:5678"
+    environment:
+      GENERIC_TIMEZONE: ${GENERIC_TIMEZONE:-Europe/Paris}
+      TZ: ${GENERIC_TIMEZONE:-Europe/Paris}
+      N8N_HOST: localhost
+      N8N_PORT: "5678"
+      N8N_PROTOCOL: http
+      N8N_WEBHOOK_URL: http://localhost:${N8N_PORT:-5678}/
+      # Empty = n8n generates a key and stores it in the volume.
+      # Set it in .env if you want credentials to survive a volume rebuild.
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:-}
+      N8N_DIAGNOSTICS_ENABLED: "false"
+      N8N_VERSION_NOTIFICATIONS_ENABLED: "false"
+      N8N_PERSONALIZATION_ENABLED: "false"
+      N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: "true"
+    volumes:
+      - n8n_data:/home/node/.n8n
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:5678/healthz >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+volumes:
+  n8n_data:
