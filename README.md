@@ -12,6 +12,12 @@ Built for the fictional pet-supplies shop **PawPantry**. Tested on **n8n 2.44.6*
 > **Status.** Tested in mock mode (no API key) and in one live run with `gpt-4.1-mini` on
 > 25 October 2026. The live numbers are in [Live run results](#live-run-results).
 
+## Video walkthrough
+
+One minute, captions, no voice. It runs in mock mode with invented emails, so no API key appears on screen. The animation plays below; the mp4 is in [`assets/videos`](assets/videos/walkthrough.mp4).
+
+![Video walkthrough](assets/animations/walkthrough.webp)
+
 ---
 
 ## The problem
@@ -71,6 +77,8 @@ scripts/live_run.md              checklist for the run with a real OpenAI key
 samples/inquiries.json           14 customer messages (12 English, 1 German, 1 French)
 samples/edge_cases.json          empty message, malformed AI output, crash (last two: mock only)
 assets/screenshots/              README images
+assets/videos/walkthrough.mp4    one-minute captioned walkthrough, no voice
+assets/animations/               the same walkthrough as an animated image
 ```
 
 ## Quick start (local, mock mode, no API key)
